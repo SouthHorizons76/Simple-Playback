@@ -121,6 +121,7 @@ class ControlsBar(QWidget):
     zoom_out_clicked      = Signal()
     volume_changed        = Signal(int)
     mute_toggled          = Signal(bool)
+    audio_btn_clicked     = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -224,7 +225,17 @@ class ControlsBar(QWidget):
         self._btn_zoom_in.clicked.connect(self.zoom_in_clicked)
         row.addWidget(self._btn_zoom_in)
 
-        row.addSpacing(8)
+        row.addSpacing(6)
+
+        # --- Audio tracks ---
+        self._btn_audio = _icon_btn(
+            "btn_audio", "headphones",
+            "Audio Tracks", _ICON_SIZE_SM, 28
+        )
+        self._btn_audio.clicked.connect(self.audio_btn_clicked)
+        row.addWidget(self._btn_audio)
+
+        row.addSpacing(6)
 
         # --- Volume ---
         self._btn_vol = QPushButton()

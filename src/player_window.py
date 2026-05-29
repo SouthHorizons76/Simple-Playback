@@ -1,24 +1,192 @@
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QStandardPaths
+from PySide6.QtCore import Qt, QTimer, QStandardPaths, QPoint, Signal
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel,
+    QMainWindow, QWidget, QVBoxLayout, QLabel, QFrame, QPushButton,
     QFileDialog, QMenuBar, QMenu, QSizePolicy,
 )
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QDragEnterEvent, QDropEvent
 
-from .mpv_widget import MpvWidget, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, _clamp
+from .mpv_widget import MpvWidget
 from .controls import ControlsBar
 from .settings import Settings
 from .shortcuts_dialog import ShortcutsDialog
 from .playlist import Playlist, VIDEO_EXTENSIONS
 
-_SPEED_MIN = 0.25
-_SPEED_MAX = 4.0
-_SPEED_STEP_FACTOR = 2.0
+_SPEED_MIN_KB  = 0.1
+_SPEED_MAX     = 4.0
+_SPEED_STEP_KB = 0.1
 _CONTROLS_HIDE_DELAY_MS = 2000
 
+
+# ---------------------------------------------------------------------------
+# Floating hint overlay (appears over the video in the top-right corner)
+# ---------------------------------------------------------------------------
+
+class _HintOverlay(QLabel):
+    """Frameless top-level label that shows transient action feedback."""
+
+    def __init__(self, parent_window):
+        super().__init__()
+        self._pw = parent_window
+        self.setWindowFlags(
+            Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAlignment(Qt.AlignCenter)
+        self.setObjectName("hint_overlay")
+        self.setStyleSheet(
+            "#hint_overlay {"
+            "  background: rgba(0, 0, 0, 178);"
+            "  color: #ffffff;"
+            "  font-size: 12pt;"
+            "  font-family: 'Segoe UI';"
+            "  padding: 7px 18px;"
+            "  border-radius: 6px;"
+            "}"
+        )
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+
+    def show_hint(self, text: str, duration_ms: int = 1700):
+        self._timer.stop()
+        self.setText(text)
+        self.adjustSize()
+        self._place()
+        self.show()
+        self._timer.start(duration_ms)
+
+    def _place(self):
+        pw = self._pw
+        cw = pw.centralWidget()
+        if not cw:
+            return
+        margin = 14
+        top_left = cw.mapToGlobal(QPoint(0, 0))
+        x = top_left.x() + cw.width() - self.width() - margin
+        y = top_left.y() + margin
+        self.move(x, y)
+
+
+# ---------------------------------------------------------------------------
+# Audio track panel (floating popup above the audio button)
+# ---------------------------------------------------------------------------
+
+class _AudioTrackPanel(QFrame):
+    """Floating panel listing per-track toggle buttons."""
+
+    tracks_changed = Signal(list)   # list[int] of selected track IDs
+
+    _BTN_STYLE = (
+        "QPushButton {"
+        "  background: #2a2a2a;"
+        "  color: #cccccc;"
+        "  border: 1px solid #3c3c3c;"
+        "  border-radius: 4px;"
+        "  padding: 5px 14px;"
+        "  text-align: left;"
+        "  font-size: 9pt;"
+        "  font-family: 'Segoe UI';"
+        "}"
+        "QPushButton:checked {"
+        "  background: #1a6fb5;"
+        "  color: #ffffff;"
+        "  border-color: #1a6fb5;"
+        "}"
+        "QPushButton:hover:!checked { background: #333333; }"
+        "QPushButton:hover:checked  { background: #1f80d0; }"
+    )
+
+    def __init__(self, parent_window):
+        super().__init__()
+        self._pw = parent_window
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setObjectName("audio_track_panel")
+        self.setStyleSheet(
+            "#audio_track_panel {"
+            "  background: #1c1c1c;"
+            "  border: 1px solid #3c3c3c;"
+            "  border-radius: 6px;"
+            "}"
+            "#audio_track_panel QLabel {"
+            "  background: transparent;"
+            "  border: none;"
+            "}"
+        )
+        self._track_btns: list[tuple[int, QPushButton]] = []
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(5)
+
+        title = QLabel("Audio Tracks")
+        title.setStyleSheet("color: #888888; font-size: 8pt;")
+        layout.addWidget(title)
+
+        self._inner = QVBoxLayout()
+        self._inner.setContentsMargins(0, 0, 0, 0)
+        self._inner.setSpacing(3)
+        layout.addLayout(self._inner)
+
+        self._no_tracks = QLabel("No audio tracks")
+        self._no_tracks.setStyleSheet("color: #555555; font-size: 9pt; padding: 4px 0;")
+        self._inner.addWidget(self._no_tracks)
+
+    def set_tracks(self, tracks: list):
+        for _, btn in self._track_btns:
+            btn.setParent(None)
+        self._track_btns.clear()
+
+        has = len(tracks) > 0
+        self._no_tracks.setVisible(not has)
+
+        for track in tracks:
+            tid = track.get("id", 0)
+            title_str = track.get("title") or ""
+            lang = track.get("lang") or ""
+            parts = [f"Track {tid}"]
+            if lang:
+                parts.append(f"[{lang}]")
+            if title_str:
+                parts.append(title_str)
+            label = "  ".join(parts)
+
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(False)
+            btn.setStyleSheet(self._BTN_STYLE)
+            btn.toggled.connect(self._on_toggle)
+            self._track_btns.append((tid, btn))
+            self._inner.addWidget(btn)
+
+        # Default: first track selected (mirrors MPV default)
+        if self._track_btns:
+            self._track_btns[0][1].setChecked(True)
+
+        self.adjustSize()
+
+    def _on_toggle(self):
+        selected = [tid for tid, btn in self._track_btns if btn.isChecked()]
+        self.tracks_changed.emit(selected)
+
+    def position_above(self, ref_widget: QWidget):
+        self.adjustSize()
+        ref_global = ref_widget.mapToGlobal(QPoint(0, 0))
+        x = ref_global.x() + ref_widget.width() // 2 - self.width() // 2
+        y = ref_global.y() - self.height() - 6
+        self.move(x, y)
+
+
+# ---------------------------------------------------------------------------
+# Main window
+# ---------------------------------------------------------------------------
 
 class PlayerWindow(QMainWindow):
 
@@ -29,6 +197,7 @@ class PlayerWindow(QMainWindow):
         self._current_speed: float = 1.0
         self._is_fullscreen: bool = False
         self._shortcuts: dict[str, QShortcut] = {}
+        self._active_audio_tracks: list[int] = []
 
         self._hide_controls_timer = QTimer(self)
         self._hide_controls_timer.setSingleShot(True)
@@ -42,6 +211,11 @@ class PlayerWindow(QMainWindow):
         self._build_menu()
         self._connect_signals()
         self.apply_shortcuts()
+
+        # Overlay windows (top-level, no Qt parent - managed manually)
+        self._hint_overlay = _HintOverlay(self)
+        self._audio_panel  = _AudioTrackPanel(self)
+        self._audio_panel.tracks_changed.connect(self._on_audio_tracks_selected)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -95,6 +269,12 @@ class PlayerWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        export_act = QAction("Export &Frame as PNG...", self)
+        export_act.triggered.connect(self._export_frame)
+        file_menu.addAction(export_act)
+
+        file_menu.addSeparator()
+
         close_act = QAction("&Close", self)
         close_act.triggered.connect(self._close_file)
         file_menu.addAction(close_act)
@@ -122,10 +302,12 @@ class PlayerWindow(QMainWindow):
         m.pause_changed.connect(c.update_pause_state)
         m.eof_reached.connect(self._on_eof)
         m.zoom_changed.connect(c.update_zoom_label)
+        m.zoom_changed.connect(self._on_zoom_hint)
+        m.audio_tracks_changed.connect(self._on_audio_tracks_changed)
 
-        c.play_pause_clicked.connect(m.toggle_pause)
-        c.frame_back_clicked.connect(m.frame_back_step)
-        c.frame_forward_clicked.connect(m.frame_step)
+        c.play_pause_clicked.connect(self._toggle_pause_hint)
+        c.frame_back_clicked.connect(self._on_frame_back)
+        c.frame_forward_clicked.connect(self._on_frame_forward)
         c.prev_file_clicked.connect(self._prev_file)
         c.next_file_clicked.connect(self._next_file)
         c.seek_requested.connect(m.seek)
@@ -134,6 +316,8 @@ class PlayerWindow(QMainWindow):
         c.zoom_out_clicked.connect(m.zoom_out)
         c.volume_changed.connect(m.set_volume)
         c.mute_toggled.connect(m.set_mute)
+        c.mute_toggled.connect(self._on_mute_hint)
+        c.audio_btn_clicked.connect(self._toggle_audio_panel)
 
     # ------------------------------------------------------------------
     # Dynamic shortcuts
@@ -142,13 +326,13 @@ class PlayerWindow(QMainWindow):
     def apply_shortcuts(self):
         """Create or update all QShortcuts from current settings."""
         actions = {
-            "toggle_pause":  self._mpv.toggle_pause,
-            "frame_forward": self._mpv.frame_step,
-            "frame_back":    self._mpv.frame_back_step,
+            "toggle_pause":  self._toggle_pause_hint,
+            "frame_forward": self._on_frame_forward,
+            "frame_back":    self._on_frame_back,
             "speed_up":      self._speed_up,
             "speed_down":    self._speed_down,
-            "zoom_in":       self._mpv.zoom_in,
-            "zoom_out":      self._mpv.zoom_out,
+            "zoom_in":       self._zoom_in_key,
+            "zoom_out":      self._zoom_out_key,
             "zoom_reset":    self._mpv.reset_zoom,
             "fullscreen":    self._toggle_fullscreen,
             "escape":        self._on_escape,
@@ -172,8 +356,6 @@ class PlayerWindow(QMainWindow):
     def load_file(self, path: str):
         if not Path(path).exists():
             return
-        # If this file belongs to the current playlist, just seek to it;
-        # otherwise create a single-file playlist.
         if not self._playlist.try_set_current(path):
             self._playlist.set_single(path)
         self._mpv.load_file(path)
@@ -222,16 +404,17 @@ class PlayerWindow(QMainWindow):
         if path:
             self._mpv.load_file(path)
             self._update_title()
+            self._show_hint("Next File")
 
     def _prev_file(self):
         path = self._playlist.prev()
         if path:
             self._mpv.load_file(path)
             self._update_title()
+            self._show_hint("Previous File")
 
     def _on_eof(self):
         self._controls.update_eof()
-        # Auto-advance to next file if the playlist has one
         if self._playlist.has_next():
             path = self._playlist.next()
             if path:
@@ -261,24 +444,128 @@ class PlayerWindow(QMainWindow):
             self.apply_shortcuts()
 
     # ------------------------------------------------------------------
+    # Export frame
+    # ------------------------------------------------------------------
+
+    def _export_frame(self):
+        if not self._mpv.is_available():
+            return
+        current = self._playlist.current()
+        if current:
+            default_dir = str(Path(current).parent)
+            stem = Path(current).stem
+        else:
+            default_dir = QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
+            stem = "frame"
+
+        pos = self._mpv.get_position()
+        h = int(pos // 3600)
+        m = int((pos % 3600) // 60)
+        s = int(pos % 60)
+        default_name = f"{stem}_{h:02d}h{m:02d}m{s:02d}s.png"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Frame",
+            str(Path(default_dir) / default_name),
+            "PNG Image (*.png)"
+        )
+        if path:
+            if not path.lower().endswith(".png"):
+                path += ".png"
+            self._mpv.export_frame(path)
+            self._show_hint("Frame saved")
+
+    # ------------------------------------------------------------------
     # Speed control
     # ------------------------------------------------------------------
 
     def _on_speed_changed(self, factor: float):
+        """Called when the toolbar preset buttons are clicked."""
         self._current_speed = factor
         self._mpv.set_speed(factor)
+        self._show_hint(f"Speed: {factor:.2g}×")
 
     def _speed_up(self):
-        new_speed = _clamp(self._current_speed * _SPEED_STEP_FACTOR, _SPEED_MIN, _SPEED_MAX)
+        new_speed = round(min(self._current_speed + _SPEED_STEP_KB, _SPEED_MAX), 2)
         self._current_speed = new_speed
         self._mpv.set_speed(new_speed)
         self._controls.set_speed_display(new_speed)
+        self._show_hint(f"Speed: {new_speed:.2g}×")
 
     def _speed_down(self):
-        new_speed = _clamp(self._current_speed / _SPEED_STEP_FACTOR, _SPEED_MIN, _SPEED_MAX)
+        new_speed = round(max(self._current_speed - _SPEED_STEP_KB, _SPEED_MIN_KB), 2)
         self._current_speed = new_speed
         self._mpv.set_speed(new_speed)
         self._controls.set_speed_display(new_speed)
+        self._show_hint(f"Speed: {new_speed:.2g}×")
+
+    # ------------------------------------------------------------------
+    # Zoom control (keyboard uses fine step, buttons use coarse step)
+    # ------------------------------------------------------------------
+
+    def _zoom_in_key(self):
+        self._mpv.zoom_in_key()   # emits zoom_changed -> _on_zoom_hint
+
+    def _zoom_out_key(self):
+        self._mpv.zoom_out_key()
+
+    # ------------------------------------------------------------------
+    # Play / pause & frame step (wrapped to show hints)
+    # ------------------------------------------------------------------
+
+    def _toggle_pause_hint(self):
+        self._mpv.toggle_pause()
+        QTimer.singleShot(60, self._emit_pause_hint)
+
+    def _emit_pause_hint(self):
+        self._show_hint("Pause" if self._mpv.is_paused() else "Play")
+
+    def _on_frame_forward(self):
+        self._mpv.frame_step()
+        self._show_hint("Frame +1")
+
+    def _on_frame_back(self):
+        self._mpv.frame_back_step()
+        self._show_hint("Frame -1")
+
+    # ------------------------------------------------------------------
+    # Hint helpers
+    # ------------------------------------------------------------------
+
+    def _show_hint(self, text: str):
+        self._hint_overlay.show_hint(text)
+
+    def _on_zoom_hint(self, zoom_level: float):
+        pct = int(round(2.0 ** zoom_level * 100))
+        self._show_hint(f"Zoom: {pct}%")
+
+    def _on_mute_hint(self, muted: bool):
+        self._show_hint("Mute" if muted else "Unmute")
+
+    # ------------------------------------------------------------------
+    # Audio track panel
+    # ------------------------------------------------------------------
+
+    def _toggle_audio_panel(self):
+        if self._audio_panel.isVisible():
+            self._audio_panel.hide()
+        else:
+            self._audio_panel.position_above(self._controls._btn_audio)
+            self._audio_panel.show()
+            self._audio_panel.raise_()
+
+    def _on_audio_tracks_changed(self, tracks: list):
+        self._audio_panel.set_tracks(tracks)
+        self._active_audio_tracks = [tracks[0]["id"]] if tracks else []
+
+    def _on_audio_tracks_selected(self, track_ids: list):
+        self._active_audio_tracks = track_ids
+        self._mpv.set_audio_tracks(track_ids)
+        if track_ids:
+            names = ", ".join(f"Track {tid}" for tid in track_ids)
+            self._show_hint(f"Audio: {names}")
+        else:
+            self._show_hint("Audio: Off")
 
     # ------------------------------------------------------------------
     # Fullscreen
@@ -314,6 +601,11 @@ class PlayerWindow(QMainWindow):
             self._restart_hide_timer()
         super().mouseMoveEvent(event)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_hint_overlay") and self._hint_overlay.isVisible():
+            self._hint_overlay._place()
+
     # ------------------------------------------------------------------
     # Drag-and-drop
     # ------------------------------------------------------------------
@@ -340,5 +632,7 @@ class PlayerWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event):
+        self._hint_overlay.close()
+        self._audio_panel.close()
         self._mpv.closeEvent(event)
         super().closeEvent(event)

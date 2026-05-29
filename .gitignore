@@ -24,6 +24,9 @@ icons/app.ico
 # Settings (user-specific, stored in AppData)
 # (not in the repo tree anyway, just a note)
 
+# Claude Code
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

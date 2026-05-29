@@ -10,7 +10,8 @@ except ImportError:
     MPV_AVAILABLE = False
 
 
-ZOOM_STEP = 0.5
+ZOOM_STEP     = 0.5   # button / scroll-wheel zoom step
+ZOOM_STEP_KEY = 0.1   # keyboard zoom step (fine-grained)
 ZOOM_MIN  = -2.0   # 25%
 ZOOM_MAX  = 4.0    # 1600%
 
@@ -21,21 +22,23 @@ def _clamp(val, lo, hi):
 
 class _Bridge(QObject):
     """Thread-safe signal bridge: MPV observer callbacks fire on MPV's thread."""
-    time_changed     = Signal(float)
-    duration_changed = Signal(float)
-    pause_changed    = Signal(bool)
-    eof_reached      = Signal()
+    time_changed          = Signal(float)
+    duration_changed      = Signal(float)
+    pause_changed         = Signal(bool)
+    eof_reached           = Signal()
+    audio_tracks_changed  = Signal(object)  # list[dict]
 
 
 class MpvWidget(QWidget):
     """QWidget that embeds libmpv's renderer directly into its HWND on Windows."""
 
     # Public signals forwarded from the bridge
-    time_changed     = Signal(float)
-    duration_changed = Signal(float)
-    pause_changed    = Signal(bool)
-    eof_reached      = Signal()
-    zoom_changed     = Signal(float)  # emits current zoom level (log2)
+    time_changed          = Signal(float)
+    duration_changed      = Signal(float)
+    pause_changed         = Signal(bool)
+    eof_reached           = Signal()
+    zoom_changed          = Signal(float)   # current zoom level (log2)
+    audio_tracks_changed  = Signal(object)  # list[dict]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,6 +65,7 @@ class MpvWidget(QWidget):
         self._bridge.duration_changed.connect(self.duration_changed)
         self._bridge.pause_changed.connect(self.pause_changed)
         self._bridge.eof_reached.connect(self.eof_reached)
+        self._bridge.audio_tracks_changed.connect(self.audio_tracks_changed)
 
         self._mpv = None
         if MPV_AVAILABLE:
@@ -112,6 +116,12 @@ class MpvWidget(QWidget):
         def _on_eof_reached(name, value):
             if value:
                 self._bridge.eof_reached.emit()
+
+        @self._mpv.property_observer("track-list")
+        def _on_track_list(name, value):
+            if value is not None:
+                audio = [t for t in value if t.get("type") == "audio"]
+                self._bridge.audio_tracks_changed.emit(audio)
 
     # ------------------------------------------------------------------
     # Qt overrides
@@ -200,6 +210,10 @@ class MpvWidget(QWidget):
         if self._mpv is None:
             return
         self._reset_zoom_state()
+        try:
+            self._mpv.command("set", "lavfi-complex", "")
+        except Exception:
+            pass
         self._mpv.play(path)
 
     def play(self):
@@ -248,6 +262,58 @@ class MpvWidget(QWidget):
             return bool(self._mpv.mute)
         return False
 
+    def export_frame(self, path: str):
+        if self._mpv:
+            try:
+                self._mpv.command("screenshot-to-file", path, "video")
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Audio track API
+    # ------------------------------------------------------------------
+
+    def get_audio_tracks(self) -> list:
+        if not self._mpv:
+            return []
+        try:
+            tracks = self._mpv.track_list
+            if tracks is None:
+                return []
+            return [t for t in tracks if t.get("type") == "audio"]
+        except Exception:
+            return []
+
+    def set_audio_tracks(self, track_ids: list):
+        """Select which audio tracks to play. Pass multiple IDs to mix them."""
+        if not self._mpv:
+            return
+        if not track_ids:
+            try:
+                self._mpv.command("set", "lavfi-complex", "")
+                self._mpv.command("set", "aid", "no")
+            except Exception:
+                pass
+            return
+        if len(track_ids) == 1:
+            try:
+                self._mpv.command("set", "lavfi-complex", "")
+            except Exception:
+                pass
+            try:
+                self._mpv.command("set", "aid", str(track_ids[0]))
+            except Exception:
+                pass
+        else:
+            # Mix multiple tracks via FFmpeg's amix filter
+            n = len(track_ids)
+            inputs = "".join(f"[aid{tid}]" for tid in track_ids)
+            filter_str = f"{inputs}amix=inputs={n}[ao]"
+            try:
+                self._mpv.command("set", "lavfi-complex", filter_str)
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     # Zoom/pan API (called from PlayerWindow keyboard shortcuts too)
     # ------------------------------------------------------------------
@@ -272,6 +338,12 @@ class MpvWidget(QWidget):
 
     def zoom_out(self):
         self.set_zoom(self._zoom_level - ZOOM_STEP)
+
+    def zoom_in_key(self):
+        self.set_zoom(self._zoom_level + ZOOM_STEP_KEY)
+
+    def zoom_out_key(self):
+        self.set_zoom(self._zoom_level - ZOOM_STEP_KEY)
 
     def reset_zoom(self):
         self.set_zoom(0.0)
