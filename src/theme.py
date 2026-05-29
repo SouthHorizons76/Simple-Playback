@@ -19,6 +19,33 @@ FONT_SIZE_MD    = 11
 CONTROLS_HEIGHT = 76
 SEEK_GROOVE_H   = 4
 
+MENU_STYLESHEET = f"""
+QMenu {{
+    background-color: {SURFACE};
+    color: {TEXT};
+    font-size: 9pt;
+    font-family: "{FONT_FAMILY}";
+    border: 1px solid {BORDER};
+    padding: 4px 0;
+}}
+QMenu::item {{
+    padding: 5px 24px;
+    background-color: transparent;
+    color: {TEXT};
+    font-size: 9pt;
+    font-family: "{FONT_FAMILY}";
+}}
+QMenu::item:selected {{
+    background-color: {ACCENT};
+    color: {TEXT};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {BORDER};
+    margin: 3px 8px;
+}}
+"""
+
 STYLESHEET = f"""
 QWidget {{
     background-color: {BACKGROUND};
@@ -26,7 +53,6 @@ QWidget {{
     font-family: "{FONT_FAMILY}";
     font-size: {FONT_SIZE_MD}pt;
     border: none;
-    outline: none;
 }}
 
 QMainWindow {{
@@ -147,10 +173,8 @@ QMainWindow {{
 #lbl_time {{
     color: {TEXT_DIM};
     font-size: 9pt;
-    font-family: "Consolas", "Courier New", monospace;
-    min-width: 130px;
-    max-width: 130px;
-    qproperty-alignment: AlignRight | AlignVCenter;
+    min-width: 175px;
+    max-width: 175px;
 }}
 
 /* Seek slider */
@@ -188,24 +212,33 @@ QMainWindow {{
 QMenuBar {{
     background-color: {SURFACE};
     color: {TEXT};
+    font-size: 9pt;
     padding: 2px;
     border-bottom: 1px solid {BORDER};
 }}
 QMenuBar::item:selected {{
-    background-color: {SURFACE2};
+    background-color: {ACCENT_DIM};
+    color: {TEXT};
     border-radius: 3px;
 }}
 QMenu {{
     background-color: {SURFACE};
     color: {TEXT};
+    font-size: {FONT_SIZE_MD}pt;
+    font-family: "{FONT_FAMILY}";
     border: 1px solid {BORDER};
     padding: 4px 0;
 }}
 QMenu::item {{
     padding: 5px 24px;
+    background-color: transparent;
+    color: {TEXT};
+    font-size: {FONT_SIZE_MD}pt;
+    font-family: "{FONT_FAMILY}";
 }}
 QMenu::item:selected {{
-    background-color: {SURFACE2};
+    background-color: {ACCENT};
+    color: {TEXT};
 }}
 QMenu::separator {{
     height: 1px;

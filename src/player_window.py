@@ -13,7 +13,9 @@ from .controls import ControlsBar
 from .settings import Settings
 from .shortcuts_dialog import ShortcutsDialog
 from .about_dialog import AboutDialog
+from .metadata_dialog import MetadataDialog
 from .playlist import Playlist, VIDEO_EXTENSIONS
+from .theme import MENU_STYLESHEET
 
 _SPEED_MIN_KB  = 0.1
 _SPEED_MAX     = 4.0
@@ -44,7 +46,7 @@ class _HintOverlay(QLabel):
             "  background: rgba(0, 0, 0, 178);"
             "  color: #ffffff;"
             "  font-size: 12pt;"
-            "  font-family: 'Segoe UI';"
+            "  font-family: \"Segoe UI\";"
             "  padding: 7px 18px;"
             "  border-radius: 6px;"
             "}"
@@ -91,7 +93,7 @@ class _AudioTrackPanel(QFrame):
         "  padding: 5px 14px;"
         "  text-align: left;"
         "  font-size: 9pt;"
-        "  font-family: 'Segoe UI';"
+        "  font-family: \"Segoe UI\";"
         "}"
         "QPushButton:checked {"
         "  background: #1a6fb5;"
@@ -235,7 +237,7 @@ class PlayerWindow(QMainWindow):
         self._drop_overlay.setObjectName("drop_overlay")
         self._drop_overlay.setAlignment(Qt.AlignCenter)
         self._drop_overlay.setStyleSheet(
-            "color: #555555; font-size: 18pt; font-family: 'Segoe UI';"
+            "color: #555555; font-size: 18pt; font-family: \"Segoe UI\";"
         )
         self._drop_overlay.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self._drop_overlay, stretch=1)
@@ -259,6 +261,7 @@ class PlayerWindow(QMainWindow):
 
         # File menu
         file_menu: QMenu = menubar.addMenu("&File")
+        file_menu.setStyleSheet(MENU_STYLESHEET)
 
         open_act = QAction("&Open File...", self)
         open_act.triggered.connect(self._open_file_dialog)
@@ -273,6 +276,11 @@ class PlayerWindow(QMainWindow):
         export_act = QAction("Export &Frame as PNG...", self)
         export_act.triggered.connect(self._export_frame)
         file_menu.addAction(export_act)
+
+        self._metadata_act = QAction("File &Metadata...", self)
+        self._metadata_act.triggered.connect(self._open_metadata_dialog)
+        self._metadata_act.setVisible(False)
+        file_menu.addAction(self._metadata_act)
 
         file_menu.addSeparator()
 
@@ -289,6 +297,7 @@ class PlayerWindow(QMainWindow):
 
         # Settings menu
         settings_menu: QMenu = menubar.addMenu("&Settings")
+        settings_menu.setStyleSheet(MENU_STYLESHEET)
 
         shortcuts_act = QAction("&Shortcuts...", self)
         shortcuts_act.triggered.connect(self._open_shortcuts_dialog)
@@ -296,6 +305,7 @@ class PlayerWindow(QMainWindow):
 
         # Help menu
         help_menu: QMenu = menubar.addMenu("&Help")
+        help_menu.setStyleSheet(MENU_STYLESHEET)
 
         about_act = QAction("&About...", self)
         about_act.triggered.connect(self._open_about_dialog)
@@ -369,6 +379,7 @@ class PlayerWindow(QMainWindow):
         self._mpv.load_file(path)
         self._drop_overlay.setVisible(False)
         self._mpv.setVisible(True)
+        self._metadata_act.setVisible(True)
         self._update_title()
 
     def _open_file_dialog(self):
@@ -395,12 +406,14 @@ class PlayerWindow(QMainWindow):
             self._mpv.load_file(first)
             self._drop_overlay.setVisible(False)
             self._mpv.setVisible(True)
+            self._metadata_act.setVisible(True)
             self._update_title()
 
     def _close_file(self):
         self._mpv.stop()
         self._mpv.setVisible(False)
         self._drop_overlay.setVisible(True)
+        self._metadata_act.setVisible(False)
         self.setWindowTitle("Simple Playback")
 
     # ------------------------------------------------------------------
@@ -453,6 +466,12 @@ class PlayerWindow(QMainWindow):
 
     def _open_about_dialog(self):
         AboutDialog(self).exec()
+
+    def _open_metadata_dialog(self):
+        current = self._playlist.current()
+        if not current:
+            return
+        MetadataDialog(current, self._mpv.get_media_info(), self).exec()
 
     # ------------------------------------------------------------------
     # Export frame

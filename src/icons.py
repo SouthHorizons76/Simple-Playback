@@ -46,3 +46,24 @@ def _make(path_d: str, color: str, size: int) -> QIcon:
 def get(name: str, color: str = "#e8e8e8", size: int = 20) -> QIcon:
     """Returns a QIcon by icon name. Raises KeyError if name is unknown."""
     return _make(_PATHS[name], color, size)
+
+
+def app_icon() -> QIcon:
+    """Multi-resolution app icon: play triangle on a dark circle."""
+    icon = QIcon()
+    for size in (16, 32, 48, 64, 128, 256):
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+            f'<circle cx="12" cy="12" r="11" fill="#1a1a1a"/>'
+            f'<path fill="#4a9eff" d="{_PATHS["play"]}"/>'
+            f'</svg>'
+        )
+        renderer = QSvgRenderer(QByteArray(svg.encode()))
+        pix = QPixmap(size, size)
+        pix.fill(Qt.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing)
+        renderer.render(painter)
+        painter.end()
+        icon.addPixmap(pix)
+    return icon

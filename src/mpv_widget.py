@@ -391,6 +391,30 @@ class MpvWidget(QWidget):
     def is_available(self) -> bool:
         return MPV_AVAILABLE and self._mpv is not None
 
+    def get_media_info(self) -> dict:
+        if not self._mpv:
+            return {}
+        info = {}
+        for attr, key in [
+            ("duration",      "duration"),
+            ("width",         "width"),
+            ("height",        "height"),
+            ("container_fps", "fps"),
+            ("video_codec",   "video_codec"),
+            ("audio_codec",   "audio_codec"),
+            ("video_bitrate", "video_bitrate"),
+            ("audio_bitrate", "audio_bitrate"),
+            ("file_size",     "file_size"),
+            ("metadata",      "tags"),
+        ]:
+            try:
+                v = getattr(self._mpv, attr)
+                if v is not None:
+                    info[key] = v
+            except Exception:
+                pass
+        return info
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

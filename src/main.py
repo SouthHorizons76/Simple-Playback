@@ -31,19 +31,27 @@ from PySide6.QtCore import Qt
 
 from src.theme import apply_app_palette
 from src.player_window import PlayerWindow
+from src.icons import app_icon
 
 
 def main():
     # High-DPI scaling is enabled by default in Qt6; no explicit attribute needed.
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     app.setApplicationName("Simple Playback")
     app.setApplicationDisplayName("Simple Playback")
     app.setOrganizationName("")
+    app.setWindowIcon(app_icon())
 
     apply_app_palette(app)
 
     window = PlayerWindow()
     window.resize(1280, 720)
+    screen = app.primaryScreen().availableGeometry()
+    window.move(
+        screen.x() + (screen.width()  - 1280) // 2,
+        screen.y() + (screen.height() - 720)  // 2,
+    )
     window.show()
 
     # Support opening a file passed as a command-line argument

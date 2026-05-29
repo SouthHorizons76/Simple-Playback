@@ -1,7 +1,7 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSlider,
-    QPushButton, QLabel, QSizePolicy, QFrame,
+    QPushButton, QLabel, QSizePolicy, QFrame, QToolTip,
 )
 from PySide6.QtGui import QMouseEvent
 
@@ -20,7 +20,10 @@ def _fmt_time(seconds: float) -> str:
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
-    return f"{h}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+    ms = int(round((seconds % 1) * 1000))
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}.{ms:03d}"
+    return f"{m:02d}:{s:02d}.{ms:03d}"
 
 
 def _icon_btn(object_name: str, icon_name: str, tooltip: str,
@@ -101,6 +104,37 @@ class SeekSlider(QSlider):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+
+class VolumeSlider(QSlider):
+    def __init__(self, parent=None):
+        super().__init__(Qt.Horizontal, parent)
+        self._pressing = False
+
+    def _tooltip_global_pos(self) -> QPoint:
+        rng = self.maximum() - self.minimum()
+        ratio = (self.value() - self.minimum()) / rng if rng else 0.0
+        # Center the tooltip above the handle (handle is ~10px wide)
+        x = int(ratio * max(self.width() - 10, 0)) + 5
+        return self.mapToGlobal(QPoint(x, -28))
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self._pressing = True
+        super().mousePressEvent(event)
+        if self._pressing:
+            QToolTip.showText(self._tooltip_global_pos(), f"{self.value()}%", self)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        super().mouseMoveEvent(event)
+        if self._pressing:
+            QToolTip.showText(self._tooltip_global_pos(), f"{self.value()}%", self)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.LeftButton:
+            self._pressing = False
+            QToolTip.showText(QPoint(), "", self)
+        super().mouseReleaseEvent(event)
 
 
 class ControlsBar(QWidget):
@@ -186,8 +220,9 @@ class ControlsBar(QWidget):
         row.addSpacing(6)
 
         # Time label
-        self._lbl_time = QLabel("00:00 / 00:00")
+        self._lbl_time = QLabel("00:00.000 / 00:00.000")
         self._lbl_time.setObjectName("lbl_time")
+        self._lbl_time.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         row.addWidget(self._lbl_time)
 
         # Spacer — stretches to fill gap before speed buttons
@@ -248,7 +283,7 @@ class ControlsBar(QWidget):
         self._btn_vol.clicked.connect(self._on_mute_clicked)
         row.addWidget(self._btn_vol)
 
-        self._slider_vol = QSlider(Qt.Horizontal)
+        self._slider_vol = VolumeSlider()
         self._slider_vol.setObjectName("slider_volume")
         self._slider_vol.setRange(0, 100)
         self._slider_vol.setValue(100)
