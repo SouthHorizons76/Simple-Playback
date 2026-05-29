@@ -1,0 +1,30 @@
+# libmpv DLLs — too large for git, see dlls/README.txt for setup
+dlls/*.dll
+dlls/*.a
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# PyInstaller
+*.spec.bak
+
+# Generated icon
+icons/app.ico
+
+# Settings (user-specific, stored in AppData)
+# (not in the repo tree anyway, just a note)
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
