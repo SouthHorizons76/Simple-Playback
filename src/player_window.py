@@ -12,6 +12,7 @@ from .mpv_widget import MpvWidget
 from .controls import ControlsBar
 from .settings import Settings
 from .shortcuts_dialog import ShortcutsDialog
+from .about_dialog import AboutDialog
 from .playlist import Playlist, VIDEO_EXTENSIONS
 
 _SPEED_MIN_KB  = 0.1
@@ -293,6 +294,13 @@ class PlayerWindow(QMainWindow):
         shortcuts_act.triggered.connect(self._open_shortcuts_dialog)
         settings_menu.addAction(shortcuts_act)
 
+        # Help menu
+        help_menu: QMenu = menubar.addMenu("&Help")
+
+        about_act = QAction("&About...", self)
+        about_act.triggered.connect(self._open_about_dialog)
+        help_menu.addAction(about_act)
+
     def _connect_signals(self):
         m = self._mpv
         c = self._controls
@@ -442,6 +450,9 @@ class PlayerWindow(QMainWindow):
         dlg = ShortcutsDialog(self._settings, self)
         if dlg.exec():
             self.apply_shortcuts()
+
+    def _open_about_dialog(self):
+        AboutDialog(self).exec()
 
     # ------------------------------------------------------------------
     # Export frame
