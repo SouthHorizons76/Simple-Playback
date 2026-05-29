@@ -8,7 +8,7 @@ echo ============================================================
 echo.
 
 :: Check Python
-python --version >nul 2>&1
+py --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Python not found. Install from https://www.python.org/
     exit /b 1
@@ -36,7 +36,7 @@ if exist "build" rmdir /s /q "build"
 
 :: Install / update dependencies
 echo [2/4] Installing dependencies...
-python -m pip install -r requirements.txt --quiet
+py -m pip install -r requirements.txt --quiet
 if errorlevel 1 (
     echo ERROR: pip install failed.
     exit /b 1
@@ -46,7 +46,7 @@ if errorlevel 1 (
 if not exist "icons\app.ico" (
     echo [3/4] Generating placeholder icon...
     if not exist "icons" mkdir icons
-    python generate_icon.py 2>nul
+    py generate_icon.py 2>nul
     if errorlevel 1 (
         echo   (Icon generation skipped - no icon will be embedded)
     )
@@ -56,7 +56,7 @@ if not exist "icons\app.ico" (
 
 :: Run PyInstaller
 echo [4/4] Building with PyInstaller...
-python -m PyInstaller build.spec --noconfirm
+py -m PyInstaller build.spec --noconfirm
 if errorlevel 1 (
     echo ERROR: PyInstaller build failed.
     exit /b 1

@@ -311,6 +311,16 @@ class PlayerWindow(QMainWindow):
         about_act.triggered.connect(self._open_about_dialog)
         help_menu.addAction(about_act)
 
+        from .registration import is_registered, _exe_path
+        if _exe_path():
+            help_menu.addSeparator()
+            self._unregister_act = QAction("Remove from \"Open with\" Menu", self)
+            self._unregister_act.triggered.connect(self._on_unregister)
+            self._unregister_act.setVisible(is_registered())
+            help_menu.addAction(self._unregister_act)
+        else:
+            self._unregister_act = None
+
     def _connect_signals(self):
         m = self._mpv
         c = self._controls
@@ -472,6 +482,44 @@ class PlayerWindow(QMainWindow):
         if not current:
             return
         MetadataDialog(current, self._mpv.get_media_info(), self).exec()
+
+    # ------------------------------------------------------------------
+    # Open with registration
+    # ------------------------------------------------------------------
+
+    def maybe_prompt_registration(self):
+        from .registration import is_registered, register, _exe_path
+        from PySide6.QtWidgets import QMessageBox
+        if not _exe_path() or is_registered():
+            return
+        if self._settings.get("registration_declined"):
+            return
+        result = QMessageBox.question(
+            self,
+            "Open with Simple Playback",
+            "Add Simple Playback to the \"Open with\" menu for video files?\n\n"
+            "You can remove it later via Help - Remove from \"Open with\" Menu.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            register()
+            if self._unregister_act:
+                self._unregister_act.setVisible(True)
+        else:
+            self._settings.set("registration_declined", True)
+            self._settings.save()
+
+    def _on_unregister(self):
+        from .registration import unregister
+        from PySide6.QtWidgets import QMessageBox
+        unregister()
+        if self._unregister_act:
+            self._unregister_act.setVisible(False)
+        QMessageBox.information(
+            self,
+            "Open with",
+            "Simple Playback has been removed from the \"Open with\" menu.",
+        )
 
     # ------------------------------------------------------------------
     # Export frame

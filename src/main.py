@@ -27,7 +27,7 @@ if os.path.isdir(_dlls_dir):
     os.add_dll_directory(_dlls_dir)
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from src.theme import apply_app_palette
 from src.player_window import PlayerWindow
@@ -53,6 +53,7 @@ def main():
         screen.y() + (screen.height() - 720)  // 2,
     )
     window.show()
+    QTimer.singleShot(600, window.maybe_prompt_registration)
 
     # Support opening a file passed as a command-line argument
     # (also enables drag-onto-exe-icon behaviour on Windows)

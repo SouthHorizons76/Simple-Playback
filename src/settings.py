@@ -89,3 +89,9 @@ class Settings:
     @staticmethod
     def default_shortcuts() -> dict[str, str]:
         return dict(_DEFAULT_SHORTCUTS)
+
+    def get(self, key: str, default=None):
+        return self._data.get(key, default)
+
+    def set(self, key: str, value) -> None:
+        self._data[key] = value
