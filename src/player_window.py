@@ -354,9 +354,14 @@ class PlayerWindow(QMainWindow):
         c.zoom_in_clicked.connect(m.zoom_in)
         c.zoom_out_clicked.connect(m.zoom_out)
         c.volume_changed.connect(m.set_volume)
+        c.volume_changed.connect(self._on_volume_changed)
         c.mute_toggled.connect(m.set_mute)
         c.mute_toggled.connect(self._on_mute_hint)
         c.audio_btn_clicked.connect(self._toggle_audio_panel)
+
+        saved_vol = self._settings.get("volume", 100)
+        self._controls.set_volume_display(saved_vol)
+        self._mpv.set_volume(saved_vol)
 
     # ------------------------------------------------------------------
     # Dynamic shortcuts
@@ -406,22 +411,30 @@ class PlayerWindow(QMainWindow):
         self._metadata_act.setVisible(True)
         self._update_title()
 
+    def _last_open_dir(self) -> str:
+        saved = self._settings.get("last_open_dir")
+        if saved and Path(saved).is_dir():
+            return saved
+        return QStandardPaths.writableLocation(QStandardPaths.MoviesLocation)
+
     def _open_file_dialog(self):
-        movies = QStandardPaths.writableLocation(QStandardPaths.MoviesLocation)
         ext_filter = (
             "Video Files (*.mp4 *.m4v *.mov *.mkv *.avi *.webm "
             "*.gif *.ts *.wmv *.flv *.mpg *.mpeg *.3gp *.ogv *.m2ts *.mts);;"
             "All Files (*)"
         )
-        path, _ = QFileDialog.getOpenFileName(self, "Open Video", movies, ext_filter)
+        path, _ = QFileDialog.getOpenFileName(self, "Open Video", self._last_open_dir(), ext_filter)
         if path:
+            self._settings.set("last_open_dir", str(Path(path).parent))
+            self._settings.save()
             self.load_file(path)
 
     def _open_folder_dialog(self):
-        movies = QStandardPaths.writableLocation(QStandardPaths.MoviesLocation)
-        folder = QFileDialog.getExistingDirectory(self, "Open Folder", movies)
+        folder = QFileDialog.getExistingDirectory(self, "Open Folder", self._last_open_dir())
         if not folder:
             return
+        self._settings.set("last_open_dir", folder)
+        self._settings.save()
         self._playlist.load_folder(folder)
         if self._playlist.is_empty():
             return
@@ -643,6 +656,10 @@ class PlayerWindow(QMainWindow):
     def _on_zoom_hint(self, zoom_level: float):
         pct = int(round(2.0 ** zoom_level * 100))
         self._show_hint(f"Zoom: {pct}%")
+
+    def _on_volume_changed(self, vol: int):
+        self._settings.set("volume", vol)
+        self._settings.save()
 
     def _on_mute_hint(self, muted: bool):
         self._show_hint("Mute" if muted else "Unmute")

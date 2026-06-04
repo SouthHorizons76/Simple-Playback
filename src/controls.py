@@ -111,30 +111,40 @@ class VolumeSlider(QSlider):
         super().__init__(Qt.Horizontal, parent)
         self._pressing = False
 
+    def _value_at_pos(self, x: float) -> int:
+        ratio = max(0.0, min(1.0, x / max(self.width(), 1)))
+        return int(ratio * (self.maximum() - self.minimum()) + self.minimum())
+
     def _tooltip_global_pos(self) -> QPoint:
         rng = self.maximum() - self.minimum()
         ratio = (self.value() - self.minimum()) / rng if rng else 0.0
-        # Center the tooltip above the handle (handle is ~10px wide)
         x = int(ratio * max(self.width() - 10, 0)) + 5
         return self.mapToGlobal(QPoint(x, -28))
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._pressing = True
-        super().mousePressEvent(event)
-        if self._pressing:
+            self.setValue(self._value_at_pos(event.position().x()))
             QToolTip.showText(self._tooltip_global_pos(), f"{self.value()}%", self)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        super().mouseMoveEvent(event)
         if self._pressing:
+            self.setValue(self._value_at_pos(event.position().x()))
             QToolTip.showText(self._tooltip_global_pos(), f"{self.value()}%", self)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._pressing = False
             QToolTip.showText(QPoint(), "", self)
-        super().mouseReleaseEvent(event)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
 
 class ControlsBar(QWidget):
@@ -165,6 +175,7 @@ class ControlsBar(QWidget):
         self.setFixedHeight(CONTROLS_HEIGHT)
         self._duration = 0.0
         self._muted = False
+        self._pre_mute_vol = 100
         self._current_speed_idx = 2  # default 1×
         self._build_ui()
 
@@ -304,7 +315,7 @@ class ControlsBar(QWidget):
         self._slider_vol.setRange(0, 100)
         self._slider_vol.setValue(100)
         self._slider_vol.setToolTip("Volume")
-        self._slider_vol.valueChanged.connect(self.volume_changed)
+        self._slider_vol.valueChanged.connect(self._on_vol_changed)
         row.addWidget(self._slider_vol)
 
         root.addLayout(row)
@@ -359,8 +370,28 @@ class ControlsBar(QWidget):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-    def _on_mute_clicked(self):
-        self._muted = not self._muted
-        icon_name = "volume_off" if self._muted else "volume"
+    def _on_vol_changed(self, value: int):
+        self._update_vol_icon()
+        self.volume_changed.emit(value)
+
+    def _update_vol_icon(self):
+        show_mute = self._muted or self._slider_vol.value() == 0
+        icon_name = "volume_off" if show_mute else "volume"
         self._btn_vol.setIcon(icons.get(icon_name, size=_ICON_SIZE_SM))
+
+    def _on_mute_clicked(self):
+        if self._muted:
+            self._muted = False
+            self._slider_vol.setValue(self._pre_mute_vol)
+        else:
+            self._muted = True
+            self._pre_mute_vol = self._slider_vol.value() or 100
+            self._slider_vol.setValue(0)
+        self._update_vol_icon()
         self.mute_toggled.emit(self._muted)
+
+    def set_volume_display(self, value: int):
+        self._slider_vol.blockSignals(True)
+        self._slider_vol.setValue(value)
+        self._slider_vol.blockSignals(False)
+        self._update_vol_icon()
