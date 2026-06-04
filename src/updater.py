@@ -98,26 +98,28 @@ def write_updater_script(source_dir: str, dest_dir: str, exe_path: str, pid: int
     dst = dest_dir.replace("'", "''")
     exe = exe_path.replace("'", "''")
 
-    # Log file sits next to the script so it survives the self-delete
-    log = os.path.join(script_dir, "sp_update_log.txt").replace("'", "''")
+    # Log in %TEMP% root so it's easy to find regardless of what happens to script_dir
+    log = os.path.join(os.environ.get("TEMP", script_dir), "sp_update_log.txt").replace("'", "''")
 
+    # Capture robocopy stdout into a variable to avoid the 2>&1 / ErrorRecord issue
+    # in PS 5.1, then write it directly to the log.
     script = (
         f"$log = '{log}'\n"
-        f"function Log($m) {{ \"$(Get-Date -Format 'HH:mm:ss') $m\" | Add-Content $log }}\n"
-        f"Log 'Waiting for app (PID {pid}) to exit'\n"
+        f"\"$(Get-Date -f 'HH:mm:ss') Updater started, waiting for PID {pid}\" | Out-File -FilePath $log -Force\n"
         f"$p = {pid}\n"
         f"while ($null -ne (Get-Process -Id $p -ErrorAction SilentlyContinue)) {{\n"
         f"    Start-Sleep -Milliseconds 500\n"
         f"}}\n"
-        f"Log 'App exited; running robocopy'\n"
-        f"robocopy '{src}' '{dst}' /E /IS /IT /R:3 /W:2 2>&1 | ForEach-Object {{ Log $_ }}\n"
+        f"\"$(Get-Date -f 'HH:mm:ss') App exited, running robocopy\" | Add-Content $log\n"
+        f"$out = robocopy '{src}' '{dst}' /E /IS /IT /R:3 /W:2\n"
+        f"$out | Add-Content $log\n"
         f"$rc = $LASTEXITCODE\n"
-        f"Log \"robocopy exit code: $rc\"\n"
+        f"\"$(Get-Date -f 'HH:mm:ss') robocopy exit code: $rc\" | Add-Content $log\n"
         f"if ($rc -lt 8) {{\n"
-        f"    Log 'Launching updated app'\n"
+        f"    \"$(Get-Date -f 'HH:mm:ss') Launching updated app\" | Add-Content $log\n"
         f"    Start-Process '{exe}'\n"
         f"}} else {{\n"
-        f"    Log \"Update failed (robocopy error $rc). Try running Simple Playback as Administrator.\"\n"
+        f"    \"$(Get-Date -f 'HH:mm:ss') Update FAILED (robocopy error $rc) - try running as Administrator\" | Add-Content $log\n"
         f"}}\n"
         f"Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n"
     )
@@ -128,16 +130,19 @@ def write_updater_script(source_dir: str, dest_dir: str, exe_path: str, pid: int
 
 
 def launch_updater_script(script_path: str) -> None:
-    """Launch the updater PowerShell script fully detached from the current process."""
+    """Launch the updater PowerShell script hidden, independent of this process."""
+    # CREATE_NO_WINDOW only — combining DETACHED_PROCESS with CREATE_NO_WINDOW
+    # can silently prevent the process from starting on some Windows configs.
     subprocess.Popen(
         [
             "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
             "-WindowStyle", "Hidden",
             "-ExecutionPolicy", "Bypass",
             "-File", script_path,
         ],
-        creationflags=subprocess.DETACHED_PROCESS | 0x08000000,  # CREATE_NO_WINDOW
-        close_fds=True,
+        creationflags=0x08000000,  # CREATE_NO_WINDOW
     )
 
 
