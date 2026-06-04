@@ -14,6 +14,7 @@ from .settings import Settings
 from .shortcuts_dialog import ShortcutsDialog
 from .about_dialog import AboutDialog
 from .metadata_dialog import MetadataDialog
+from .update_dialog import UpdateDialog
 from .playlist import Playlist, VIDEO_EXTENSIONS
 from .theme import MENU_STYLESHEET
 
@@ -307,6 +308,12 @@ class PlayerWindow(QMainWindow):
         help_menu: QMenu = menubar.addMenu("&Help")
         help_menu.setStyleSheet(MENU_STYLESHEET)
 
+        check_update_act = QAction("Check for &Updates...", self)
+        check_update_act.triggered.connect(self._open_update_dialog)
+        help_menu.addAction(check_update_act)
+
+        help_menu.addSeparator()
+
         about_act = QAction("&About...", self)
         about_act.triggered.connect(self._open_about_dialog)
         help_menu.addAction(about_act)
@@ -473,6 +480,9 @@ class PlayerWindow(QMainWindow):
         dlg = ShortcutsDialog(self._settings, self)
         if dlg.exec():
             self.apply_shortcuts()
+
+    def _open_update_dialog(self):
+        UpdateDialog(self).exec()
 
     def _open_about_dialog(self):
         AboutDialog(self).exec()
