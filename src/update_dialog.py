@@ -12,7 +12,7 @@ from PySide6.QtGui import QTextOption
 from .updater import (
     CheckThread, DownloadThread, ExtractThread,
     find_extractor, write_updater_script, launch_updater_script,
-    is_newer, is_packaged, app_dir, app_exe,
+    is_newer, is_packaged, is_dir_writable, app_dir, app_exe,
     GITHUB_REPO,
 )
 from .version import VERSION
@@ -228,9 +228,19 @@ class UpdateDialog(QDialog):
     # ── install ─────────────────────────────────────────────────────────────
 
     def _install(self):
+        dest = app_dir()
+        if not is_dir_writable(dest):
+            self._status_lbl.setText(
+                "Cannot write to the installation folder.\n\n"
+                "Please close this app and re-run it as Administrator, then try again."
+            )
+            self._action_btn.setVisible(False)
+            self.adjustSize()
+            return
+
         script = write_updater_script(
             self._extracted_dir,
-            app_dir(),
+            dest,
             app_exe(),
             os.getpid(),
             self._temp_dir,

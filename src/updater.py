@@ -51,6 +51,18 @@ def app_exe() -> str:
     return sys.executable if is_packaged() else ""
 
 
+def is_dir_writable(path: str) -> bool:
+    """Return True if we can create files in path (quick UAC/permission probe)."""
+    try:
+        test = os.path.join(path, ".sp_write_test")
+        with open(test, "w"):
+            pass
+        os.remove(test)
+        return True
+    except OSError:
+        return False
+
+
 def find_extractor() -> tuple | None:
     """Return (tool_path, kind) for the first usable RAR extractor, or None."""
     for cmd, kind in [("unrar", "unrar"), ("7z", "7zip"), ("7za", "7zip")]:
@@ -82,18 +94,31 @@ def write_updater_script(source_dir: str, dest_dir: str, exe_path: str, pid: int
     Write a PowerShell script that waits for the app to exit, robocopy-updates
     the install directory, then relaunches the app.
     """
-    # Escape single quotes for PS single-quoted strings
     src = source_dir.replace("'", "''")
     dst = dest_dir.replace("'", "''")
     exe = exe_path.replace("'", "''")
 
+    # Log file sits next to the script so it survives the self-delete
+    log = os.path.join(script_dir, "sp_update_log.txt").replace("'", "''")
+
     script = (
+        f"$log = '{log}'\n"
+        f"function Log($m) {{ \"$(Get-Date -Format 'HH:mm:ss') $m\" | Add-Content $log }}\n"
+        f"Log 'Waiting for app (PID {pid}) to exit'\n"
         f"$p = {pid}\n"
         f"while ($null -ne (Get-Process -Id $p -ErrorAction SilentlyContinue)) {{\n"
         f"    Start-Sleep -Milliseconds 500\n"
         f"}}\n"
-        f"robocopy '{src}' '{dst}' /E /IS /IT /NFL /NDL /NJH /NJS | Out-Null\n"
-        f"Start-Process '{exe}'\n"
+        f"Log 'App exited; running robocopy'\n"
+        f"robocopy '{src}' '{dst}' /E /IS /IT /R:3 /W:2 2>&1 | ForEach-Object {{ Log $_ }}\n"
+        f"$rc = $LASTEXITCODE\n"
+        f"Log \"robocopy exit code: $rc\"\n"
+        f"if ($rc -lt 8) {{\n"
+        f"    Log 'Launching updated app'\n"
+        f"    Start-Process '{exe}'\n"
+        f"}} else {{\n"
+        f"    Log \"Update failed (robocopy error $rc). Try running Simple Playback as Administrator.\"\n"
+        f"}}\n"
         f"Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\n"
     )
     script_path = os.path.join(script_dir, "sp_update.ps1")
