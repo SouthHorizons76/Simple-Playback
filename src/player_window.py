@@ -249,6 +249,7 @@ class PlayerWindow(QMainWindow):
         layout.addWidget(self._mpv, stretch=1)
 
         self._controls = ControlsBar(self)
+        self._controls.setEnabled(False)
         layout.addWidget(self._controls, stretch=0)
 
         if not self._mpv.is_available():
@@ -339,10 +340,13 @@ class PlayerWindow(QMainWindow):
         m.zoom_changed.connect(c.update_zoom_label)
         m.zoom_changed.connect(self._on_zoom_hint)
         m.audio_tracks_changed.connect(self._on_audio_tracks_changed)
+        m.video_clicked.connect(self._toggle_pause_hint)
 
         c.play_pause_clicked.connect(self._toggle_pause_hint)
         c.frame_back_clicked.connect(self._on_frame_back)
         c.frame_forward_clicked.connect(self._on_frame_forward)
+        c.skip_back_clicked.connect(self._skip_back)
+        c.skip_fwd_clicked.connect(self._skip_fwd)
         c.prev_file_clicked.connect(self._prev_file)
         c.next_file_clicked.connect(self._next_file)
         c.seek_requested.connect(m.seek)
@@ -364,6 +368,8 @@ class PlayerWindow(QMainWindow):
             "toggle_pause":  self._toggle_pause_hint,
             "frame_forward": self._on_frame_forward,
             "frame_back":    self._on_frame_back,
+            "skip_back":     self._skip_back,
+            "skip_fwd":      self._skip_fwd,
             "speed_up":      self._speed_up,
             "speed_down":    self._speed_down,
             "zoom_in":       self._zoom_in_key,
@@ -396,6 +402,7 @@ class PlayerWindow(QMainWindow):
         self._mpv.load_file(path)
         self._drop_overlay.setVisible(False)
         self._mpv.setVisible(True)
+        self._controls.setEnabled(True)
         self._metadata_act.setVisible(True)
         self._update_title()
 
@@ -423,6 +430,7 @@ class PlayerWindow(QMainWindow):
             self._mpv.load_file(first)
             self._drop_overlay.setVisible(False)
             self._mpv.setVisible(True)
+            self._controls.setEnabled(True)
             self._metadata_act.setVisible(True)
             self._update_title()
 
@@ -430,6 +438,7 @@ class PlayerWindow(QMainWindow):
         self._mpv.stop()
         self._mpv.setVisible(False)
         self._drop_overlay.setVisible(True)
+        self._controls.setEnabled(False)
         self._metadata_act.setVisible(False)
         self.setWindowTitle("Simple Playback")
 
@@ -615,6 +624,14 @@ class PlayerWindow(QMainWindow):
     def _on_frame_back(self):
         self._mpv.frame_back_step()
         self._show_hint("Frame -1")
+
+    def _skip_back(self):
+        self._mpv.seek_relative(-5.0)
+        self._show_hint("−5s")
+
+    def _skip_fwd(self):
+        self._mpv.seek_relative(5.0)
+        self._show_hint("+5s")
 
     # ------------------------------------------------------------------
     # Hint helpers

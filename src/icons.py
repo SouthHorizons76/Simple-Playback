@@ -4,15 +4,15 @@ from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtCore import Qt, QByteArray
 
 # Material Design icon path data
-_PATHS = {
+_PATHS: dict[str, str] = {
     "play":         "M8 5v14l11-7z",
     "pause":        "M6 19h4V5H6v14zm8-14v14h4V5h-4z",
-    # Frame step: triangle + bar (skip_next / skip_previous style)
-    "frame_fwd":    "M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z",
-    "frame_back":   "M6 6h2v12H6zm3.5 6l8.5 6V6z",
-    # File skip: double triangles (fast_forward / fast_rewind style)
-    "next_file":    "M4 18l8.5-6L4 6v12zm9 0l8.5-6L13 6v12z",
-    "prev_file":    "M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z",
+    # Frame step: bar + gap + triangle — "|>" / "<|" (debugger step style, mirrored)
+    "frame_fwd":    "M5 6h3v12H5zM10 6l9 6-9 6z",
+    "frame_back":   "M14 6l-9 6 9 6zM16 6h3v12h-3z",
+    # File skip: triangle + outer bar — ">|" / "|<" (skip-to style)
+    "next_file":    "M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z",
+    "prev_file":    "M6 6h2v12H6zm3.5 6l8.5 6V6z",
     # Volume
     "volume":       "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z",
     "volume_off":   "M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z",
@@ -24,6 +24,23 @@ _PATHS = {
     "camera":       "M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
     # Headphones / audio tracks
     "headphones":   "M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z",
+}
+
+# Icons that need SVG elements beyond a single path (e.g. text).
+# Use {color} as a placeholder — it is substituted at render time.
+_BODIES: dict[str, str] = {
+    "skip_back": (
+        '<path fill="{color}" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6'
+        's-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>'
+        '<text x="12" y="15" text-anchor="middle" font-size="7"'
+        ' fill="{color}" font-family="Arial,sans-serif" font-weight="bold">5</text>'
+    ),
+    "skip_fwd": (
+        '<path fill="{color}" d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6'
+        ' 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/>'
+        '<text x="12" y="15" text-anchor="middle" font-size="7"'
+        ' fill="{color}" font-family="Arial,sans-serif" font-weight="bold">5</text>'
+    ),
 }
 
 
@@ -43,8 +60,22 @@ def _make(path_d: str, color: str, size: int) -> QIcon:
     return QIcon(pix)
 
 
+def _make_body(inner_svg: str, size: int) -> QIcon:
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">{inner_svg}</svg>'
+    renderer = QSvgRenderer(QByteArray(svg.encode()))
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    renderer.render(painter)
+    painter.end()
+    return QIcon(pix)
+
+
 def get(name: str, color: str = "#e8e8e8", size: int = 20) -> QIcon:
     """Returns a QIcon by icon name. Raises KeyError if name is unknown."""
+    if name in _BODIES:
+        return _make_body(_BODIES[name].format(color=color), size)
     return _make(_PATHS[name], color, size)
 
 

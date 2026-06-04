@@ -147,6 +147,8 @@ class ControlsBar(QWidget):
     play_pause_clicked    = Signal()
     frame_back_clicked    = Signal()
     frame_forward_clicked = Signal()
+    skip_back_clicked     = Signal()
+    skip_fwd_clicked      = Signal()
     prev_file_clicked     = Signal()
     next_file_clicked     = Signal()
     seek_requested        = Signal(float)
@@ -189,6 +191,13 @@ class ControlsBar(QWidget):
         self._btn_prev_file.clicked.connect(self.prev_file_clicked)
         row.addWidget(self._btn_prev_file)
 
+        self._btn_skip_back = _icon_btn(
+            "btn_skip_back", "skip_back",
+            "Skip back 5s  (J)", _ICON_SIZE, 36
+        )
+        self._btn_skip_back.clicked.connect(self.skip_back_clicked)
+        row.addWidget(self._btn_skip_back)
+
         self._btn_frame_back = _icon_btn(
             "btn_frame_back", "frame_back",
             "Previous frame  (←)", _ICON_SIZE, 36
@@ -209,6 +218,13 @@ class ControlsBar(QWidget):
         )
         self._btn_frame_fwd.clicked.connect(self.frame_forward_clicked)
         row.addWidget(self._btn_frame_fwd)
+
+        self._btn_skip_fwd = _icon_btn(
+            "btn_skip_fwd", "skip_fwd",
+            "Skip forward 5s  (L)", _ICON_SIZE, 36
+        )
+        self._btn_skip_fwd.clicked.connect(self.skip_fwd_clicked)
+        row.addWidget(self._btn_skip_fwd)
 
         self._btn_next_file = _icon_btn(
             "btn_next_file", "next_file",

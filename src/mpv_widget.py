@@ -10,8 +10,9 @@ except ImportError:
     MPV_AVAILABLE = False
 
 
-ZOOM_STEP     = 0.5   # button / scroll-wheel zoom step
-ZOOM_STEP_KEY = 0.1   # keyboard zoom step (fine-grained)
+ZOOM_STEP        = 0.5   # button zoom step (log2)
+ZOOM_STEP_SCROLL = 10    # scroll-wheel zoom step (percentage points per notch)
+ZOOM_STEP_KEY    = 0.1   # keyboard zoom step (log2, fine-grained)
 ZOOM_MIN  = -2.0   # 25%
 ZOOM_MAX  = 4.0    # 1600%
 
@@ -39,6 +40,7 @@ class MpvWidget(QWidget):
     eof_reached           = Signal()
     zoom_changed          = Signal(float)   # current zoom level (log2)
     audio_tracks_changed  = Signal(object)  # list[dict]
+    video_clicked         = Signal()        # single left click (not drag)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -59,6 +61,10 @@ class MpvWidget(QWidget):
         self._pan_start = None
         self._pan_start_x: float = 0.0
         self._pan_start_y: float = 0.0
+
+        self._left_pressed: bool = False
+        self._left_press_pos = None
+        self._left_dragged: bool = False
 
         self._bridge = _Bridge()
         self._bridge.time_changed.connect(self.time_changed)
@@ -148,20 +154,31 @@ class MpvWidget(QWidget):
     def wheelEvent(self, event: QWheelEvent):
         if self._mpv is None:
             return
-        steps = event.angleDelta().y() / 120.0
-        new_zoom = _clamp(self._zoom_level + steps * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX)
-        if new_zoom != self._zoom_level:
-            self._zoom_level = new_zoom
-            self._mpv.video_zoom = self._zoom_level
-            if self._zoom_level == 0.0:
-                self._pan_x = 0.0
-                self._pan_y = 0.0
-                self._mpv.video_pan_x = 0.0
-                self._mpv.video_pan_y = 0.0
-            self.zoom_changed.emit(self._zoom_level)
+        notches = round(event.angleDelta().y() / 120.0)
+        if notches == 0:
+            return
+        # Operate in integer-percentage space so each notch is exactly ±10%.
+        # Snap current level to the nearest 10% grid first so button/keyboard
+        # usage beforehand doesn't cause drift.
+        current_pct = round(2.0 ** self._zoom_level * 100 / 10) * 10
+        new_pct = int(_clamp(current_pct + notches * ZOOM_STEP_SCROLL, 25, 1600))
+        if new_pct == current_pct:
+            return
+        self._zoom_level = math.log2(new_pct / 100.0)
+        self._mpv.video_zoom = self._zoom_level
+        if new_pct == 100:
+            self._pan_x = 0.0
+            self._pan_y = 0.0
+            self._mpv.video_pan_x = 0.0
+            self._mpv.video_pan_y = 0.0
+        self.zoom_changed.emit(self._zoom_level)
 
     def mousePressEvent(self, event: QMouseEvent):
-        if self._zoom_level > 0 and event.button() == Qt.LeftButton:
+        if event.button() == Qt.LeftButton:
+            self._left_pressed = True
+            self._left_press_pos = event.position()
+            self._left_dragged = False
+        elif event.button() == Qt.MiddleButton and self._zoom_level > 0:
             self._panning = True
             self._pan_start = event.position()
             self._pan_start_x = self._pan_x
@@ -170,12 +187,16 @@ class MpvWidget(QWidget):
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        if self._left_pressed and self._left_press_pos is not None and not self._left_dragged:
+            if (event.position() - self._left_press_pos).manhattanLength() > 5:
+                self._left_dragged = True
         if self._panning and self._pan_start is not None:
             delta = event.position() - self._pan_start
             w = max(self.width(), 1)
             h = max(self.height(), 1)
-            pan_x = self._pan_start_x - delta.x() / w
-            pan_y = self._pan_start_y - delta.y() / h
+            # Natural drag: moving mouse right shifts video right
+            pan_x = self._pan_start_x + delta.x() / w
+            pan_y = self._pan_start_y + delta.y() / h
             # Clamp pan so the video edge cannot move past the widget edge
             max_pan = (1.0 - 1.0 / (2.0 ** self._zoom_level)) / 2.0 if self._zoom_level > 0 else 0.0
             pan_x = _clamp(pan_x, -max_pan, max_pan)
@@ -189,16 +210,23 @@ class MpvWidget(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
-            self._panning = False
-            self._pan_start = None
-            if self._zoom_level > 0:
-                self.setCursor(Qt.OpenHandCursor)
-            else:
+            if self._left_pressed and not self._left_dragged:
+                self.video_clicked.emit()
+            self._left_pressed = False
+            self._left_press_pos = None
+            self._left_dragged = False
+        elif event.button() == Qt.MiddleButton:
+            if self._panning:
+                self._panning = False
+                self._pan_start = None
                 self.setCursor(Qt.ArrowCursor)
         event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
+            # Suppress the pending single-click action from the first press/release
+            self._left_pressed = False
+            self._left_dragged = True
             self.reset_zoom()
         event.accept()
 
@@ -232,6 +260,13 @@ class MpvWidget(QWidget):
         if self._mpv:
             try:
                 self._mpv.seek(seconds, "absolute")
+            except Exception:
+                pass
+
+    def seek_relative(self, seconds: float):
+        if self._mpv:
+            try:
+                self._mpv.seek(seconds, "relative")
             except Exception:
                 pass
 
@@ -328,9 +363,6 @@ class MpvWidget(QWidget):
             if self._mpv:
                 self._mpv.video_pan_x = 0.0
                 self._mpv.video_pan_y = 0.0
-            self.setCursor(Qt.ArrowCursor)
-        else:
-            self.setCursor(Qt.OpenHandCursor)
         self.zoom_changed.emit(self._zoom_level)
 
     def zoom_in(self):
